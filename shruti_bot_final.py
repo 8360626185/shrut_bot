@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 # ════════════════════════════════════════════════════════════════
-BOT_TOKEN        = "5482954908:AAE6Xv0ImgKHCcaw8eSqbvLj3P-QnaA2KOQ"
+BOT_TOKEN        = "8789030708:AAE6Xv0ImgKHCcaw8eSqbvLj3P-QnaA2KOQ"
 ADMIN_IDS        = [5482954908]
 WEBSITE_URL      = "https://cscvleservice.beer"
 ADMIN_PHONE      = "1234567890"
