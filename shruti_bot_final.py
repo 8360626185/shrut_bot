@@ -310,11 +310,11 @@ async def create_payment_order(uid, amount, purpose="Wallet Recharge"):
         logger.error(f"Pay0 error: {e}")
 
     # Fallback: direct UPI link
-    upi_string = f"upi://pay?pa=merchant@upi&pn=ShrutiOnline&am={amount}&tn=WalletRecharge_{uid}&cu=INR"
+    upi_string = f"upi://pay?pa=8360626185@upi&pn=ShrutiOnline&am={amount}&tn=WalletRecharge_{uid}&cu=INR"
     return {
         "order_id": f"WALLET_{uid}_{int(datetime.now().timestamp())}",
         "payment_url": None,
-        "upi_id": "merchant@upi",
+        "upi_id": "8360626185@upi",
         "upi_string": upi_string,
         "qr_url": f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={upi_string}",
     }
