@@ -22,7 +22,7 @@ ADMIN_PASSWORD   = "03122010"
 PAY0_MERCHANT_ID = "svVFRo76286320206024"
 PAY0_API_KEY     = "238620578b32a062bb75f0ebcaeda57b"
 PAY0_API_URL     = "https://pay0.shop/api"
-UPI_ID           = "8360626185@upi"
+UPI_ID           = "rtosarvice@ptyes"
 UPI_NAME         = "Shruti Online Sarvice"
 DB_FILE          = "bot_database.json"
 # ════════════════════════════════════════════════════════════════
