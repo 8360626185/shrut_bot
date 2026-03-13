@@ -212,24 +212,69 @@ async def call_service_api(svc_key, user_input):
 def parse_service_result(svc_key, html):
     soup = BeautifulSoup(html, 'html.parser')
     result_text = ""; result_data = {}
+
+    # Check for error first
+    error_keywords = ['invalid', 'not found', 'error', 'failed', 'incorrect', 
+                      'nahi mila', 'no record', 'no data', 'unauthorized']
+    html_lower = html.lower()
+    has_error = any(kw in html_lower for kw in error_keywords)
+
+    # Modal content
     modal = soup.find('div', {'class': 'modal-body'}) or soup.find('div', {'id': 'resultModal'})
-    if modal: result_text = modal.get_text(strip=True)
-    alert = soup.find('div', {'class': lambda x: x and 'alert' in x})
-    if alert: result_text = alert.get_text(strip=True)
-    table = soup.find('table')
-    if table:
+    if modal: result_text = modal.get_text(separator='\n', strip=True)
+
+    # Alert boxes
+    for alert_cls in ['alert-success', 'alert-info', 'alert-warning', 'alert']:
+        alert = soup.find('div', {'class': lambda x: x and alert_cls in x})
+        if alert:
+            t = alert.get_text(strip=True)
+            if t and len(t) > 5: result_text = t; break
+
+    # Table data (RC, DL, voter details)
+    tables = soup.find_all('table')
+    for table in tables:
         for row in table.find_all('tr'):
             cols = row.find_all(['td', 'th'])
             if len(cols) >= 2:
-                k = cols[0].get_text(strip=True); v = cols[1].get_text(strip=True)
-                if k and v: result_data[k] = v
+                k = cols[0].get_text(strip=True)
+                v = cols[1].get_text(strip=True)
+                if k and v and len(k) < 50: result_data[k] = v
+
+    # PDF link
     pdf_link = None
     for a in soup.find_all('a', href=True):
-        if '.pdf' in a['href'].lower() or 'download' in a['href'].lower():
-            pdf_link = a['href']
-            if not pdf_link.startswith('http'): pdf_link = WEBSITE_URL + pdf_link
-    is_success = any(kw.lower() in html.lower() for kw in ['success','found','CENPK','INSTANT','PAN No','RC','DL'])
-    return {"success": is_success, "text": result_text, "data": result_data, "pdf_link": pdf_link}
+        href = a['href']
+        if '.pdf' in href.lower() or 'download' in href.lower() or 'pdf' in href.lower():
+            pdf_link = href if href.startswith('http') else WEBSITE_URL + href
+            break
+
+    # Card/result div
+    for div in soup.find_all('div', {'class': lambda x: x and any(c in str(x) for c in ['card-body', 'result', 'data-box', 'output'])}):
+        t = div.get_text(separator='\n', strip=True)
+        if t and len(t) > 20 and not result_text: result_text = t
+
+    # Strict success: must have actual data
+    has_data = bool(result_data) or bool(pdf_link) or (len(result_text) > 15)
+    
+    # Success keywords that indicate real data
+    success_keywords = ['owner', 'name', 'vehicle', 'pan', 'aadhaar', 'voter', 
+                       'registration', 'engine', 'chassis', 'dob', 'address',
+                       'father', 'district', 'state', 'pincode', 'pdf', 'download',
+                       'cenpk', 'instant', 'found', 'details']
+    has_success_kw = any(kw in html_lower for kw in success_keywords)
+
+    # Login page check — agar login page aa gaya toh fail
+    is_login_page = 'sign in' in html_lower or 'login' in html_lower[:500]
+    
+    is_success = has_data and has_success_kw and not has_error and not is_login_page
+
+    return {
+        "success": is_success,
+        "text": result_text,
+        "data": result_data,
+        "pdf_link": pdf_link,
+        "has_data": has_data
+    }
 
 # ── UPI Payment ───────────────────────────────────────────────
 async def create_payment_order(uid, amount):
@@ -504,14 +549,21 @@ async def service_input_recv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if error or not html_result:
         update_wallet(uid, price)
         await update.message.reply_text(
-            f"❌ *Error*\n{error}\n💰 ₹{price} refund ho gaye.",
+            f"❌ *Service Error*\n\n"
+            f"📌 Service: {svc['name']}\n"
+            f"🔍 Input: `{user_input}`\n"
+            f"❗ Error: {error or 'Connection fail'}\n\n"
+            f"💰 *₹{price} refund ho gaye!*\n"
+            f"🏦 New Balance: ₹{get_wallet(uid)}",
             parse_mode="Markdown", reply_markup=main_kb(uid))
         return ConversationHandler.END
+
     result = parse_service_result(sk, html_result)
     save_order({"order_id": oid, "uid": str(uid), "service": svc['name'],
                 "input": user_input, "price": price,
                 "status": "success" if result["success"] else "failed",
                 "time": datetime.now().strftime("%d-%m-%Y %H:%M")})
+
     if result["success"]:
         rt = f"✅ *{svc['name']} — Result*\n━━━━━━━━━━━━━━━━\n\n"
         if result["text"]: rt += f"{result['text']}\n\n"
@@ -522,9 +574,18 @@ async def service_input_recv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if result["pdf_link"]: btns.insert(0, [InlineKeyboardButton("📄 PDF Download", url=result["pdf_link"])])
         await update.message.reply_text(rt, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btns))
     else:
+        # Auto refund
         update_wallet(uid, price)
         await update.message.reply_text(
-            f"❌ *Result nahi mila*\nInput check karein.\n💰 ₹{price} refund ho gaye.",
+            f"❌ *Data Nahi Mila — Auto Refund!*\n\n"
+            f"📌 Service: {svc['name']}\n"
+            f"🔍 Input: `{user_input}`\n\n"
+            f"⚠️ Possible reasons:\n"
+            f"  • Galat number/ID dala\n"
+            f"  • Record available nahi\n"
+            f"  • Website temporarily down\n\n"
+            f"💰 *₹{price} refund ho gaye!*\n"
+            f"🏦 New Balance: ₹{get_wallet(uid)}",
             parse_mode="Markdown", reply_markup=main_kb(uid))
     return ConversationHandler.END
 
