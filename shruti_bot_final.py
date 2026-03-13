@@ -703,6 +703,41 @@ async def contact_admin_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def unknown(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤔 /start likhein", reply_markup=main_kb(update.effective_user.id))
 
+# ── Admin Commands ─────────────────────────────────────────────
+async def addwallet_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /addwallet USER_ID AMOUNT"""
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        await update.message.reply_text("❌ Access Denied!")
+        return
+    try:
+        target_uid = int(ctx.args[0])
+        amount = float(ctx.args[1])
+        new_bal = update_wallet(target_uid, amount)
+        await update.message.reply_text(
+            f"✅ *Wallet Updated!*\n👤 User: `{target_uid}`\n💰 Added: ₹{amount}\n🏦 New Balance: ₹{new_bal}",
+            parse_mode="Markdown")
+        try:
+            await ctx.bot.send_message(
+                target_uid,
+                f"✅ *Wallet Recharge!*\n💰 ₹{amount} add ho gaye!\nNew Balance: *₹{new_bal}*",
+                parse_mode="Markdown", reply_markup=main_kb(target_uid))
+        except: pass
+    except (IndexError, ValueError):
+        await update.message.reply_text(
+            "❌ Sahi format:\n`/addwallet USER_ID AMOUNT`\n\nExample:\n`/addwallet 5482954908 50`",
+            parse_mode="Markdown")
+
+async def myid_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Show user's Telegram ID"""
+    u = update.effective_user
+    await update.message.reply_text(
+        f"👤 *Aapki Info:*\n"
+        f"🆔 ID: `{u.id}`\n"
+        f"📛 Name: {u.first_name}\n"
+        f"💰 Wallet: ₹{get_wallet(u.id)}",
+        parse_mode="Markdown")
+
 # ── MAIN ──────────────────────────────────────────────────────
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -725,6 +760,8 @@ def main():
         fallbacks=[], per_user=True))
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("addwallet", addwallet_cmd))
+    app.add_handler(CommandHandler("myid", myid_cmd))
     app.add_handler(CallbackQueryHandler(main_menu_cb,       pattern="^main_menu$"))
     app.add_handler(CallbackQueryHandler(wallet_menu,         pattern="^wallet_menu$"))
     app.add_handler(CallbackQueryHandler(recharge_handler,    pattern="^recharge_"))
