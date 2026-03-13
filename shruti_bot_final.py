@@ -15,7 +15,7 @@ from telegram.ext import (
 
 # ════════════════════════════════════════════════════════════════
 BOT_TOKEN        = "8789030708:AAE6Xv0ImgKHCcaw8eSqbvLj3P-QnaA2KOQ"
-ADMIN_IDS        = [5482954908]
+ADMIN_IDS        = [8789030708]
 WEBSITE_URL      = "https://cscvleservice.beer"
 ADMIN_PHONE      = "1234567890"
 ADMIN_PASSWORD   = "03122010"
@@ -131,19 +131,61 @@ def is_admin(uid): return uid in ADMIN_IDS
 # ── Website Session ───────────────────────────────────────────
 async def get_website_session():
     try:
-        async with aiohttp.ClientSession() as s:
-            async with s.get(f"{WEBSITE_URL}/auth") as r:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+        }
+        jar = aiohttp.CookieJar()
+        async with aiohttp.ClientSession(cookie_jar=jar, headers=headers) as s:
+            # Step 1: Get login page + CSRF token
+            async with s.get(f"{WEBSITE_URL}/auth", timeout=aiohttp.ClientTimeout(total=15)) as r:
                 html = await r.text()
                 soup = BeautifulSoup(html, 'html.parser')
                 csrf = ""
                 t = soup.find('input', {'name': '_token'})
                 if t: csrf = t.get('value', '')
-                m = soup.find('meta', {'name': 'csrf-token'})
-                if m: csrf = m.get('content', '')
-            login_data = {'_token': csrf, 'phone': ADMIN_PHONE, 'password': ADMIN_PASSWORD}
-            async with s.post(f"{WEBSITE_URL}/auth/login", data=login_data, allow_redirects=True) as r:
-                cookies = {k: v.value for k, v in s.cookie_jar._cookies.get('cscvleservice.beer', {}).items()}
-                return cookies
+                if not csrf:
+                    m = soup.find('meta', {'name': 'csrf-token'})
+                    if m: csrf = m.get('content', '')
+                logger.info(f"CSRF token: {csrf[:20] if csrf else 'NOT FOUND'}")
+
+            # Step 2: POST login
+            login_data = {
+                '_token': csrf,
+                'phone': ADMIN_PHONE,
+                'password': ADMIN_PASSWORD,
+            }
+            async with s.post(
+                f"{WEBSITE_URL}/auth/login",
+                data=login_data,
+                allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as r:
+                resp_url = str(r.url)
+                resp_text = await r.text()
+                logger.info(f"Login response URL: {resp_url}, status: {r.status}")
+                
+                # Check if login successful (redirected to dashboard)
+                if '/admin' in resp_url or 'dashboard' in resp_url.lower() or r.status == 200:
+                    # Extract all cookies
+                    cookies = {}
+                    for cookie in jar:
+                        cookies[cookie.key] = cookie.value
+                    logger.info(f"Cookies obtained: {list(cookies.keys())}")
+                    if cookies:
+                        return cookies
+                    # Try alternate cookie extraction
+                    for domain_cookies in jar._cookies.values():
+                        for path_cookies in domain_cookies.values():
+                            for name, cookie in path_cookies.items():
+                                cookies[name] = cookie.value
+                    logger.info(f"Cookies (alt): {list(cookies.keys())}")
+                    return cookies
+                else:
+                    logger.error(f"Login failed. Response: {resp_text[:200]}")
+                    return {}
     except Exception as e:
         logger.error(f"Login error: {e}"); return {}
 
